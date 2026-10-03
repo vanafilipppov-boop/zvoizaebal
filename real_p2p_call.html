@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>КОМИ созвон — P2P Переговоры (Real WebRTC)</title>
+  
+  <!-- Tailwind CSS & Google Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PeerJS CDN for WebRTC Real P2P Signaling -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            aquamarine: {
+              300: '#A3F7E5',
+              400: '#7EF0D8',
+              500: '#38DFBB',
+              600: '#00C9A7',
+              700: '#00A388',
+              800: '#007A67',
+              900: '#004D42',
+            }
+          },
+          animation: {
+            'gradient-x': 'gradient-x 8s ease infinite',
+            'pulse-glow': 'pulseGlow 2s infinite',
+            'speaking': 'speakingPulse 1.5s ease-in-out infinite alternate',
+          },
+          keyframes: {
+            'gradient-x': {
+              '0%, 100%': { 'background-size': '200% 200%', 'background-position': 'left center' },
+              '50%': { 'background-size': '200% 200%', 'background-position': 'right center' },
+            },
+            'pulseGlow': {
+              '0%, 100%': { boxShadow: '0 0 15px rgba(56, 223, 187, 0.4)' },
+              '50%': { boxShadow: '0 0 25px rgba(56, 223, 187, 0.8)' }
+            },
+            'speakingPulse': {
+              '0%': { 'box-shadow': '0 0 0 2px rgba(56, 223, 187, 0.5)' },
+              '100%': { 'box-shadow': '0 0 0 6px rgba(56, 223, 187, 0.9)' }
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .dark .glass-card {
+      background: rgba(18, 26, 31, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .scrollbar-custom::-webkit-scrollbar {
+      width: 4px;
+    }
+    .scrollbar-custom::-webkit-scrollbar-thumb {
+      background: rgba(56, 223, 187, 0.3);
+      border-radius: 9999px;
+    }
+    .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+      background: rgba(56, 223, 187, 0.6);
+    }
+  </style>
+</head>
+
+<body class="h-full bg-gradient-to-br from-teal-100 via-aquamarine-400 to-emerald-200 dark:from-slate-950 dark:via-teal-950 dark:to-slate-900 animate-gradient-x text-slate-800 dark:text-slate-100 transition-colors duration-500 overflow-x-hidden">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-5 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-11/12 max-w-sm pointer-events-none"></div>
+
+  <div id="app-container" class="max-w-md mx-auto min-h-screen sm:min-h-[850px] sm:my-4 sm:rounded-[40px] sm:shadow-2xl sm:border-4 sm:border-slate-800/20 dark:sm:border-slate-700/30 overflow-hidden relative flex flex-col justify-between transition-all duration-300">
+
+    <!-- App Header -->
+    <header class="pt-5 px-5 pb-4 flex items-center justify-between glass-card sticky top-0 z-30 border-b border-white/30 dark:border-slate-800/50 rounded-b-3xl shadow-sm">
+      <div class="flex items-center space-x-3">
+        <!-- App Icon (Komi Republic Flag) -->
+        <div class="relative group cursor-pointer" onclick="showKomiInfo()">
+          <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-aquamarine-600 to-teal-400 p-[2.5px] shadow-md shadow-aquamarine-500/20 transition-transform duration-300 group-hover:scale-105 active:scale-95">
+            <div class="w-full h-full rounded-[13px] overflow-hidden flex flex-col justify-between bg-white dark:bg-slate-900 shadow-inner">
+              <div class="h-1/3 bg-[#0072CE] w-full"></div>
+              <div class="h-1/3 bg-[#009A44] w-full"></div>
+              <div class="h-1/3 bg-[#FFFFFF] border-t border-slate-200/30 w-full"></div>
+            </div>
+          </div>
+          <span class="absolute -bottom-1 -right-1 flex h-3.5 w-3.5">
+            <span id="p2p-status-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span id="p2p-status-dot" class="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-white dark:border-slate-900"></span>
+          </span>
+        </div>
+
+        <div>
+          <!-- Header Title: 11 reg destroy 🐻 -->
+          <div class="flex items-center space-x-1.5">
+            <h1 class="text-base font-extrabold tracking-tight text-slate-900 dark:text-white uppercase font-mono">11 reg destroy</h1>
+            <span class="text-sm transform inline-block hover:rotate-12 transition-transform cursor-pointer" title="Регион 11 - Республика Коми">🐻</span>
+          </div>
+          <p class="text-[10px] font-bold tracking-wider text-aquamarine-800 dark:text-aquamarine-400 uppercase flex items-center space-x-1">
+            <span id="p2p-status-text">WebRTC P2P Ready</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Controls: Theme Toggle & Sound Test -->
+      <div class="flex items-center space-x-2">
+        <button onclick="toggleTheme()" class="p-2.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-sm border border-slate-200/60 dark:border-slate-700/60 transition-all duration-300 active:scale-90" title="Сменить тему">
+          <svg id="theme-icon-sun" class="w-5 h-5 hidden dark:block text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+          <svg id="theme-icon-moon" class="w-5 h-5 block dark:hidden text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="flex-1 p-5 overflow-y-auto space-y-5 pb-24 scrollbar-custom">
+
+      <!-- Peer ID / Live Connection Card -->
+      <div class="glass-card rounded-3xl p-5 border border-white/50 dark:border-slate-700/40 shadow-xl space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-aquamarine-500 animate-pulse"></span>
+            Мой Личный ID Созвона
+          </h2>
+          <span class="text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-mono px-2 py-0.5 rounded-lg border border-emerald-300/30">P2P Network</span>
+        </div>
+
+        <!-- My Peer ID Box with Copy Button -->
+        <div class="p-3 bg-slate-900/10 dark:bg-slate-900/60 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 flex items-center justify-between space-x-2">
+          <div class="flex flex-col">
+            <span class="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Отправь этот ID другу:</span>
+            <span id="my-peer-id" class="text-sm font-mono font-bold text-aquamarine-700 dark:text-aquamarine-400 tracking-wide">Подключение к сети...</span>
+          </div>
+          <button onclick="copyMyPeerId()" class="px-3 py-2 bg-aquamarine-500 hover:bg-aquamarine-400 text-slate-950 font-bold rounded-xl text-xs shadow transition-all active:scale-95 flex items-center gap-1">
+            <span>📋 Скопировать</span>
+          </button>
+        </div>
+
+        <!-- Call Target Peer ID Input -->
+        <div class="space-y-2 pt-1">
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300">Совершить звонок человеку:</label>
+          <div class="flex space-x-2">
+            <input type="text" id="target-peer-id" placeholder="Введи ID собеседника (напр. komi-11-x9k2)..." class="flex-1 px-4 py-2.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-aquamarine-500 focus:outline-none text-xs text-slate-900 dark:text-white font-mono">
+            <button onclick="initiateCall()" class="px-4 py-2.5 bg-gradient-to-r from-aquamarine-500 to-teal-500 hover:from-aquamarine-400 hover:to-teal-400 text-slate-950 font-extrabold rounded-2xl shadow-lg shadow-aquamarine-500/20 active:scale-95 transition-all flex items-center justify-center gap-1 text-xs">
+              <span>📞 Звонок</span>
+            </button>
+          </div>
+        </div>
+
+        <button onclick="shareDirectCallLink()" class="w-full py-2 bg-slate-200/80 dark:bg-slate-800/80 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-2xl transition-all flex items-center justify-center space-x-2">
+          <span>🔗 Поделиться прямой ссылкой на звонок</span>
+        </button>
+      </div>
+
+      <!-- Profile Settings -->
+      <div id="profile-card" class="glass-card rounded-3xl p-5 border border-white/50 dark:border-slate-700/40 shadow-xl space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-200/50 dark:border-slate-700/50 pb-3">
+          <h3 class="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+            <span>👤</span> Мой Профиль
+          </h3>
+          <span class="text-[10px] bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300 font-semibold px-2 py-0.5 rounded-full">Apple ID Guest</span>
+        </div>
+
+        <div class="flex items-center space-x-4">
+          <!-- Avatar Uploader -->
+          <div class="relative group cursor-pointer" onclick="document.getElementById('avatar-input').click()">
+            <div class="w-14 h-14 rounded-full bg-gradient-to-br from-aquamarine-400 to-teal-600 p-0.5 shadow-md overflow-hidden relative">
+              <img id="my-avatar-img" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=256" alt="Avatar" class="w-full h-full object-cover rounded-full">
+            </div>
+            <input type="file" id="avatar-input" accept="image/*" class="hidden" onchange="uploadAvatar(event)">
+          </div>
+
+          <div class="flex-1 space-y-1">
+            <label class="block text-[10px] font-bold text-slate-500 dark:text-slate-400">Никнейм в сети:</label>
+            <div class="relative">
+              <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-aquamarine-600 dark:text-aquamarine-400 font-bold text-xs">@</span>
+              <input type="text" id="nickname-input" value="syktyvkar_pro" class="w-full pl-7 pr-3 py-1.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white font-bold">
+            </div>
+          </div>
+        </div>
+
+        <!-- Komi Ringtone "Maryamol" Card -->
+        <div class="p-3 rounded-2xl bg-slate-900/5 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-aquamarine-500/20 text-aquamarine-800 dark:text-aquamarine-300 flex items-center justify-center text-base">
+              🎵
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-900 dark:text-white">Рингтон «Марьямоль»</div>
+              <div class="text-[10px] text-slate-500 dark:text-slate-400">Синтезатор народной мелодии</div>
+            </div>
+          </div>
+          <button onclick="playMaryamolChorus()" class="px-3 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold text-xs rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 active:scale-95 transition-all flex items-center space-x-1">
+            <span id="ringtone-play-icon">▶</span>
+            <span>Тест</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Friends list -->
+      <div class="glass-card rounded-3xl p-5 border border-white/50 dark:border-slate-700/40 shadow-xl space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+            <span>👥</span> Частые Переговоры
+          </h3>
+          <span class="text-[10px] text-slate-400">Регион 11</span>
+        </div>
+
+        <div id="friends-list" class="space-y-2">
+          <!-- Dynamically rendered contacts -->
+        </div>
+      </div>
+
+    </main>
+
+    <!-- REAL WEBRTC ACTIVE CALL OVERLAY -->
+    <div id="call-screen" class="fixed inset-0 z-50 bg-[#1e1f22] text-slate-100 flex flex-col justify-between hidden transition-all">
+      
+      <!-- Call Header -->
+      <div class="p-4 bg-[#2b2d31] border-b border-[#35373c] flex items-center justify-between shadow-md">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-xl bg-aquamarine-500/20 text-aquamarine-400 flex items-center justify-center font-bold text-sm">
+            #
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 id="channel-title" class="text-sm font-extrabold text-white tracking-wide">переговоры-коми</h2>
+              <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-mono font-bold">WEBRTC LIVE</span>
+            </div>
+            <p class="text-[11px] text-slate-400 font-mono flex items-center space-x-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span id="call-timer">00:00</span>
+              <span>•</span>
+              <span id="peer-connection-badge">Соединено</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <!-- Master Volume Toggle -->
+          <button onclick="toggleVolumePopover()" class="p-2 rounded-xl bg-[#35373c] hover:bg-[#404249] text-slate-200 active:scale-95 transition-all relative" title="Громкость">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+          </button>
+
+          <!-- Toggle Chat Button -->
+          <button id="chat-toggle-btn" onclick="toggleInCallChat()" class="p-2 rounded-xl bg-aquamarine-500 text-slate-950 font-bold hover:bg-aquamarine-400 active:scale-95 transition-all flex items-center space-x-1 shadow-lg shadow-aquamarine-500/20">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+            <span id="unread-chat-badge" class="hidden w-2 h-2 rounded-full bg-rose-500"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- MASTER VOLUME POPOVER -->
+      <div id="volume-popover" class="hidden absolute top-16 right-4 z-40 bg-[#2b2d31] p-4 rounded-2xl border border-[#35373c] shadow-2xl w-64 space-y-3">
+        <div class="flex justify-between items-center text-xs font-bold text-slate-200">
+          <span>🔊 Громкость звонка</span>
+          <span id="master-vol-label" class="font-mono text-aquamarine-400">100%</span>
+        </div>
+        <input type="range" id="master-vol-slider" min="0" max="100" value="100" oninput="adjustMasterVolume(this.value)" class="w-full accent-aquamarine-500 bg-slate-700 rounded-lg cursor-pointer h-2">
+      </div>
+
+      <!-- VIDEO GRID CONTAINER -->
+      <div class="flex-1 overflow-hidden relative flex">
+
+        <div id="video-grid-container" class="flex-1 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto scrollbar-custom">
+          
+          <!-- Participant 1: Local User Video Stream -->
+          <div id="user-card-self" class="bg-[#2b2d31] rounded-2xl relative overflow-hidden border-2 border-[#35373c] flex flex-col items-center justify-center p-3 shadow-md h-52 sm:h-auto">
+            <video id="local-video" autoplay playsinline muted class="hidden absolute inset-0 w-full h-full object-cover rounded-2xl"></video>
+            
+            <div id="self-avatar-container" class="relative z-10 flex flex-col items-center">
+              <div class="w-16 h-16 rounded-full ring-4 ring-aquamarine-500/30 overflow-hidden shadow-lg mb-2">
+                <img id="self-call-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=256" class="w-full h-full object-cover">
+              </div>
+              <span id="self-call-name" class="text-xs font-bold text-white bg-black/60 px-2.5 py-0.5 rounded-full backdrop-blur-md">Вы</span>
+            </div>
+
+            <div id="self-mute-icon" class="hidden absolute top-2 right-2 p-1.5 rounded-xl bg-rose-600/90 text-white text-xs shadow">
+              🎙️❌
+            </div>
+            
+            <div class="absolute bottom-2 left-2 flex items-center space-x-1 bg-black/60 px-2 py-0.5 rounded-lg text-[10px] text-aquamarine-400 font-mono">
+              <span class="w-2 h-2 rounded-full bg-aquamarine-400 animate-ping"></span>
+              <span>LOCAL STREAM</span>
+            </div>
+          </div>
+
+          <!-- Participant 2: Remote Peer WebRTC Video Stream -->
+          <div id="user-card-remote" class="bg-[#2b2d31] rounded-2xl relative overflow-hidden border-2 border-aquamarine-500 flex flex-col items-center justify-center p-3 shadow-md h-52 sm:h-auto">
+            <video id="remote-video" autoplay playsinline class="hidden absolute inset-0 w-full h-full object-cover rounded-2xl"></video>
+
+            <div id="remote-avatar-container" class="relative z-10 flex flex-col items-center">
+              <div class="w-16 h-16 rounded-full ring-4 ring-emerald-500/50 overflow-hidden shadow-lg mb-2">
+                <img id="remote-call-avatar" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=256" class="w-full h-full object-cover">
+              </div>
+              <span id="remote-call-name" class="text-xs font-bold text-white bg-black/60 px-2.5 py-0.5 rounded-full backdrop-blur-md">Собеседник</span>
+            </div>
+
+            <div class="absolute bottom-2 left-2 flex items-center space-x-1 bg-black/60 px-2 py-0.5 rounded-lg text-[10px] text-emerald-400 font-mono">
+              <span id="remote-speaking-badge">🔊 Ожидание видеопотока...</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- IN-CALL REALTIME CHAT DRAWER -->
+        <div id="in-call-chat-drawer" class="hidden absolute inset-y-0 right-0 w-full sm:w-80 bg-[#2b2d31] border-l border-[#35373c] flex flex-col justify-between z-30 transition-all shadow-2xl">
+          <!-- Chat Header -->
+          <div class="p-3 bg-[#1e1f22] border-b border-[#35373c] flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="text-sm font-bold text-white">💬 P2P Чат</span>
+              <span class="text-[10px] bg-aquamarine-500/20 text-aquamarine-300 font-mono px-1.5 py-0.5 rounded">DataChannel</span>
+            </div>
+            <button onclick="toggleInCallChat()" class="text-slate-400 hover:text-white p-1 rounded-lg">✕</button>
+          </div>
+
+          <!-- Messages Stream -->
+          <div id="chat-messages-container" class="flex-1 p-3 overflow-y-auto space-y-3 text-xs scrollbar-custom">
+            <div class="p-2.5 rounded-xl bg-[#1e1f22] border border-[#35373c] text-slate-400 font-mono text-[10px] space-y-1">
+              <p class="text-aquamarine-400 font-bold">🔒 Защищенный P2P Канал Связи</p>
+              <p>Сообщения передаются напрямую между вашими браузерами.</p>
+            </div>
+          </div>
+
+          <!-- File Upload Preview Box -->
+          <div id="file-preview-box" class="hidden px-3 py-2 bg-[#1e1f22] border-t border-[#35373c] flex items-center justify-between">
+            <div class="flex items-center space-x-2 overflow-hidden">
+              <span class="text-lg">📁</span>
+              <span id="file-preview-name" class="text-xs text-aquamarine-400 font-mono truncate">document.pdf</span>
+            </div>
+            <button onclick="cancelFileUpload()" class="text-rose-400 font-bold text-xs">Удалить</button>
+          </div>
+
+          <!-- Chat Input -->
+          <div class="p-3 bg-[#1e1f22] border-t border-[#35373c] flex items-center space-x-2">
+            <button onclick="document.getElementById('chat-file-input').click()" class="p-2 rounded-xl bg-[#35373c] hover:bg-[#404249] text-slate-300 active:scale-95 transition-all" title="Прикрепить файл">
+              📎
+            </button>
+            <input type="file" id="chat-file-input" class="hidden" onchange="handleFileSelect(event)">
+
+            <input type="text" id="chat-input" placeholder="Написать в чат..." onkeypress="handleChatKeyPress(event)" class="flex-1 bg-[#2b2d31] text-white text-xs px-3 py-2.5 rounded-xl border border-[#35373c] focus:outline-none focus:ring-2 focus:ring-aquamarine-500">
+
+            <button onclick="sendChatMessage()" class="p-2.5 rounded-xl bg-aquamarine-500 hover:bg-aquamarine-400 text-slate-950 font-bold active:scale-95 transition-all">
+              ➔
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Call Control Bar -->
+      <div class="p-4 bg-[#2b2d31] border-t border-[#35373c] flex items-center justify-around shadow-lg">
+        
+        <!-- Toggle Mic -->
+        <button id="mic-control-btn" onclick="toggleMicrophone()" class="flex flex-col items-center group">
+          <div id="mic-icon-bg" class="w-12 h-12 rounded-2xl bg-[#35373c] group-hover:bg-[#404249] flex items-center justify-center text-xl transition-all shadow active:scale-90">
+            🎙️
+          </div>
+          <span id="mic-status-label" class="text-[10px] font-bold text-slate-400 mt-1">Микр. ВКЛ</span>
+        </button>
+
+        <!-- Toggle Video / Camera -->
+        <button id="video-control-btn" onclick="toggleCamera()" class="flex flex-col items-center group">
+          <div id="video-icon-bg" class="w-12 h-12 rounded-2xl bg-[#35373c] group-hover:bg-[#404249] flex items-center justify-center text-xl transition-all shadow active:scale-90">
+            📹
+          </div>
+          <span id="video-status-label" class="text-[10px] font-bold text-slate-400 mt-1">Камера ВЫКЛ</span>
+        </button>
+
+        <!-- Screen Share -->
+        <button onclick="toggleScreenShare()" class="flex flex-col items-center group">
+          <div id="screen-icon-bg" class="w-12 h-12 rounded-2xl bg-[#35373c] group-hover:bg-[#404249] flex items-center justify-center text-xl transition-all shadow active:scale-90">
+            🖥️️
+          </div>
+          <span class="text-[10px] font-bold text-slate-400 mt-1">Экран</span>
+        </button>
+
+        <!-- End Call Button -->
+        <button onclick="endCall()" class="flex flex-col items-center group">
+          <div class="w-14 h-12 rounded-2xl bg-rose-600 hover:bg-rose-500 flex items-center justify-center text-xl text-white transition-all shadow-lg shadow-rose-600/30 active:scale-90">
+            📞
+          </div>
+          <span class="text-[10px] font-bold text-rose-400 mt-1">Завершить</span>
+        </button>
+
+      </div>
+
+    </div>
+
+    <!-- INCOMING CALL MODAL -->
+    <div id="incoming-call-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 hidden animate-fade-in">
+      <div class="glass-card w-full max-w-xs rounded-3xl p-6 border border-aquamarine-500/50 shadow-2xl space-y-5 text-center">
+        <div class="relative w-20 h-20 mx-auto">
+          <div class="w-full h-full rounded-full bg-gradient-to-tr from-aquamarine-500 to-teal-400 p-1 shadow-lg shadow-aquamarine-500/30 animate-pulse-glow flex items-center justify-center">
+            <img id="incoming-caller-avatar" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=256" class="w-full h-full rounded-full object-cover">
+          </div>
+        </div>
+
+        <div>
+          <h3 id="incoming-caller-title" class="text-lg font-black text-slate-900 dark:text-white">Входящий вызов</h3>
+          <p id="incoming-caller-id" class="text-xs font-mono text-aquamarine-600 dark:text-aquamarine-400 mt-1">komi-11-user</p>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Рингтон «Марьямоль» 🎵</p>
+        </div>
+
+        <div class="flex space-x-3 pt-2">
+          <button onclick="rejectIncomingCall()" class="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs rounded-2xl active:scale-95 transition-all shadow-lg shadow-rose-600/30">
+            Отклонить
+          </button>
+          <button onclick="acceptIncomingCall()" class="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-2xl active:scale-95 transition-all shadow-lg shadow-emerald-500/30">
+            Ответить
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    let isDarkMode = true;
+    let activeCallTimer = null;
+    let secondsElapsed = 0;
+    
+    // Web Audio Synthesizer State
+    let audioCtx = null;
+    let isPlayingRingtone = false;
+    let ringtoneTimeout = null;
+    let masterGainNode = null;
+    let masterVolume = 1.0;
+
+    // WebRTC PeerJS State
+    let peer = null;
+    let myPeerId = '';
+    let currentCall = null;
+    let dataConnection = null;
+    let pendingCall = null;
+    let localStream = null;
+
+    // Call Media State
+    let isMicMuted = false;
+    let isCameraOn = false;
+    let pendingFileAttachment = null;
+
+    // Default Contacts
+    const mockFriends = [
+      { id: '1', name: "Иван Печора", nick: "pechora_11", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=256" },
+      { id: '2', name: "Анна Ухта", nick: "ukhta_girl", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=256" }
+    ];
+
+    window.onload = function() {
+      initPeer();
+      renderFriendsList();
+      checkUrlHashForCall();
+    };
+
+    function initPeer() {
+      // Generate a distinct Komi Peer ID
+      const randomTag = Math.random().toString(36).substring(2, 7);
+      myPeerId = `komi-11-${randomTag}`;
+
+      peer = new Peer(myPeerId, {
+        debug: 1
+      });
+
+      peer.on('open', (id) => {
+        myPeerId = id;
+        document.getElementById('my-peer-id').innerText = id;
+        document.getElementById('p2p-status-text').innerText = 'P2P Network Active';
+        showToast(`Ваш ID созвона: ${id}`);
+      });
+
+      peer.on('call', (call) => {
+        pendingCall = call;
+        showIncomingCallModal(call.peer);
+      });
+
+      peer.on('connection', (conn) => {
+        setupDataConnection(conn);
+      });
+
+      peer.on('error', (err) => {
+        console.warn('PeerJS Error:', err);
+        showToast(`Сеть P2P: ${err.type || 'ошибка соединения'}`);
+      });
+    }
+
+    function checkUrlHashForCall() {
+      const hash = window.location.hash;
+      if (hash && hash.includes('room=')) {
+        const targetId = hash.split('room=')[1];
+        if (targetId) {
+          document.getElementById('target-peer-id').value = targetId;
+          showToast(`Получена ссылка на звонок: ${targetId}`);
+        }
+      }
+    }
+
+    function copyMyPeerId() {
+      if (!myPeerId) return;
+      
+      const tempInput = document.createElement('input');
+      tempInput.value = myPeerId;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+
+      showToast("Ваш ID скопирован в буфер! 📋");
+    }
+
+    function shareDirectCallLink() {
+      if (!myPeerId) return;
+      const shareUrl = `${window.location.origin}${window.location.pathname}#room=${myPeerId}`;
+      
+      const tempInput = document.createElement('input');
+      tempInput.value = shareUrl;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+
+      showToast("Ссылка на созвон скопирована! 🔗");
+    }
+
+    async function initiateCall() {
+      const targetId = document.getElementById('target-peer-id').value.trim();
+      if (!targetId) {
+        showToast("Введите ID человека для звонка!");
+        return;
+      }
+
+      if (targetId === myPeerId) {
+        showToast("Нельзя позвонить самому себе на этот же ID");
+        return;
+      }
+
+      showToast(`Вызов ${targetId}...`);
+      playMaryamolChorus();
+
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }).catch(() => {
+          // Fallback to audio only if camera is not available
+          return navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+        });
+
+        if (localStream.getVideoTracks().length > 0) {
+          const localVideo = document.getElementById('local-video');
+          localVideo.srcObject = localStream;
+          localVideo.classList.remove('hidden');
+          document.getElementById('self-avatar-container').classList.add('hidden');
+          isCameraOn = true;
+          updateCameraButtonUI();
+        }
+
+        const call = peer.call(targetId, localStream);
+        const conn = peer.connect(targetId);
+
+        setupCallEvents(call);
+        setupDataConnection(conn);
+
+        document.getElementById('channel-title').innerText = `звонок-${targetId}`;
+        showCallScreen();
+
+      } catch (err) {
+        console.error('Media stream error:', err);
+        stopMaryamolRingtone();
+        showToast("Не удалось получить доступ к микрофону/камере");
+      }
+    }
+
+    function showIncomingCallModal(callerId) {
+      playMaryamolChorus();
+      document.getElementById('incoming-caller-id').innerText = callerId;
+      document.getElementById('incoming-call-modal').classList.remove('hidden');
+    }
+
+    function hideIncomingCallModal() {
+      document.getElementById('incoming-call-modal').classList.add('hidden');
+      stopMaryamolRingtone();
+    }
+
+    function rejectIncomingCall() {
+      hideIncomingCallModal();
+      if (pendingCall) {
+        pendingCall.close();
+        pendingCall = null;
+      }
+      showToast("Входящий вызов отклонен");
+    }
+
+    async function acceptIncomingCall() {
+      if (!pendingCall) return;
+
+      const callerId = pendingCall.peer;
+      hideIncomingCallModal();
+
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }).catch(() => {
+          return navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+        });
+
+        if (localStream.getVideoTracks().length > 0) {
+          const localVideo = document.getElementById('local-video');
+          localVideo.srcObject = localStream;
+          localVideo.classList.remove('hidden');
+          document.getElementById('self-avatar-container').classList.add('hidden');
+          isCameraOn = true;
+          updateCameraButtonUI();
+        }
+
+        pendingCall.answer(localStream);
+        setupCallEvents(pendingCall);
+
+        document.getElementById('channel-title').innerText = `звонок-${callerId}`;
+        showCallScreen();
+
+      } catch (err) {
+        console.error('Accept call error:', err);
+        showToast("Ошибка подключения медиаустройств");
+      }
+    }
+
+    function setupCallEvents(call) {
+      currentCall = call;
+
+      call.on('stream', (remoteStream) => {
+        stopMaryamolRingtone();
+        const remoteVideo = document.getElementById('remote-video');
+        remoteVideo.srcObject = remoteStream;
+        
+        if (remoteStream.getVideoTracks().length > 0) {
+          remoteVideo.classList.remove('hidden');
+          document.getElementById('remote-avatar-container').classList.add('hidden');
+        }
+        document.getElementById('remote-speaking-badge').innerText = '🔊 Прямой эфир (Live)';
+        showToast("Собеседник подключился! 🎉");
+      });
+
+      call.on('close', () => {
+        endCall();
+      });
+
+      call.on('error', (err) => {
+        showToast("Ошибка WebRTC соединения");
+        endCall();
+      });
+    }
+
+    function setupDataConnection(conn) {
+      dataConnection = conn;
+
+      dataConnection.on('open', () => {
+        showToast("Защищенный P2P Чат готов");
+      });
+
+      dataConnection.on('data', (data) => {
+        receiveChatMessage(data);
+      });
+    }
+
+    function showCallScreen() {
+      document.getElementById('call-screen').classList.remove('hidden');
+
+      secondsElapsed = 0;
+      document.getElementById('call-timer').innerText = "00:00";
+
+      if (activeCallTimer) clearInterval(activeCallTimer);
+      activeCallTimer = setInterval(() => {
+        secondsElapsed++;
+        const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+        const secs = String(secondsElapsed % 60).padStart(2, '0');
+        document.getElementById('call-timer').innerText = `${mins}:${secs}`;
+      }, 1000);
+    }
+
+    function endCall() {
+      stopMaryamolRingtone();
+      if (activeCallTimer) clearInterval(activeCallTimer);
+
+      if (currentCall) {
+        currentCall.close();
+        currentCall = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+      }
+
+      document.getElementById('local-video').classList.add('hidden');
+      document.getElementById('remote-video').classList.add('hidden');
+      document.getElementById('self-avatar-container').classList.remove('hidden');
+      document.getElementById('remote-avatar-container').classList.remove('hidden');
+
+      document.getElementById('call-screen').classList.add('hidden');
+      showToast("Вызов завершен");
+    }
+
+    function toggleMicrophone() {
+      if (!localStream) return;
+      
+      const audioTrack = localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        isMicMuted = !audioTrack.enabled;
+
+        const bg = document.getElementById('mic-icon-bg');
+        const label = document.getElementById('mic-status-label');
+        const muteIcon = document.getElementById('self-mute-icon');
+
+        if (isMicMuted) {
+          bg.classList.add('bg-rose-600');
+          bg.innerText = '🔇';
+          label.innerText = 'Микр. ВЫКЛ';
+          label.classList.add('text-rose-400');
+          muteIcon.classList.remove('hidden');
+          showToast("Микрофон отключен");
+        } else {
+          bg.classList.remove('bg-rose-600');
+          bg.innerText = '🎙️';
+          label.innerText = 'Микр. ВКЛ';
+          label.classList.remove('text-rose-400');
+          muteIcon.classList.add('hidden');
+          showToast("Микрофон включен");
+        }
+      }
+    }
+
+    async function toggleCamera() {
+      if (!localStream) return;
+
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        isCameraOn = videoTrack.enabled;
+        
+        const videoEl = document.getElementById('local-video');
+        const avatarContainer = document.getElementById('self-avatar-container');
+
+        if (isCameraOn) {
+          videoEl.classList.remove('hidden');
+          avatarContainer.classList.add('hidden');
+        } else {
+          videoEl.classList.add('hidden');
+          avatarContainer.classList.remove('hidden');
+        }
+        updateCameraButtonUI();
+      } else {
+        // Try requesting video track if missing
+        try {
+          const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const newVideoTrack = videoStream.getVideoTracks()[0];
+          localStream.addTrack(newVideoTrack);
+          
+          if (currentCall) {
+            const sender = currentCall.peerConnection.getSenders().find(s => s.track.kind === 'video');
+            if (sender) sender.replaceTrack(newVideoTrack);
+          }
+
+          document.getElementById('local-video').srcObject = localStream;
+          document.getElementById('local-video').classList.remove('hidden');
+          document.getElementById('self-avatar-container').classList.add('hidden');
+          isCameraOn = true;
+          updateCameraButtonUI();
+        } catch (e) {
+          showToast("Камера недоступна");
+        }
+      }
+    }
+
+    function updateCameraButtonUI() {
+      const bg = document.getElementById('video-icon-bg');
+      const label = document.getElementById('video-status-label');
+
+      if (isCameraOn) {
+        bg.classList.add('bg-emerald-600');
+        label.innerText = 'Камера ВКЛ';
+        label.classList.add('text-emerald-400');
+      } else {
+        bg.classList.remove('bg-emerald-600');
+        label.innerText = 'Камера ВЫКЛ';
+        label.classList.remove('text-emerald-400');
+      }
+    }
+
+    async function toggleScreenShare() {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = screenStream.getVideoTracks()[0];
+
+        if (currentCall) {
+          const sender = currentCall.peerConnection.getSenders().find(s => s.track.kind === 'video');
+          if (sender) sender.replaceTrack(screenTrack);
+        }
+
+        document.getElementById('local-video').srcObject = screenStream;
+        document.getElementById('local-video').classList.remove('hidden');
+        document.getElementById('self-avatar-container').classList.add('hidden');
+
+        screenTrack.onended = () => {
+          if (localStream && localStream.getVideoTracks()[0]) {
+            const origVideoTrack = localStream.getVideoTracks()[0];
+            if (currentCall) {
+              const sender = currentCall.peerConnection.getSenders().find(s => s.track.kind === 'video');
+              if (sender) sender.replaceTrack(origVideoTrack);
+            }
+            document.getElementById('local-video').srcObject = localStream;
+          }
+        };
+
+        showToast("Демонстрация экрана запущена 🖥️");
+
+      } catch (err) {
+        console.warn('Screen share cancelled/failed', err);
+      }
+    }
+
+    function sendChatMessage() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+
+      if (!text && !pendingFileAttachment) return;
+
+      const myNick = document.getElementById('nickname-input').value || 'syktyvkar_pro';
+      const payload = {
+        sender: `@${myNick}`,
+        text: text,
+        file: pendingFileAttachment ? { name: pendingFileAttachment.name, size: pendingFileAttachment.size } : null,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      if (dataConnection && dataConnection.open) {
+        dataConnection.send(payload);
+      }
+
+      appendMessageToUI(payload, true);
+
+      input.value = '';
+      cancelFileUpload();
+    }
+
+    function receiveChatMessage(payload) {
+      appendMessageToUI(payload, false);
+      const drawer = document.getElementById('in-call-chat-drawer');
+      if (drawer.classList.contains('hidden')) {
+        document.getElementById('unread-chat-badge').classList.remove('hidden');
+      }
+    }
+
+    function appendMessageToUI(msg, isSelf) {
+      const container = document.getElementById('chat-messages-container');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "flex flex-col space-y-0.5 animate-fade-in";
+
+      let fileHtml = '';
+      if (msg.file) {
+        fileHtml = `
+          <div class="mt-1 p-2 rounded-lg bg-[#1e1f22] border border-[#404249] flex items-center space-x-2">
+            <span class="text-base">📁</span>
+            <div class="overflow-hidden">
+              <div class="font-bold text-aquamarine-400 truncate text-[11px]">${escapeHtml(msg.file.name)}</div>
+              <div class="text-[9px] text-slate-400 font-mono">${Math.round(msg.file.size / 1024)} KB • Direct P2P</div>
+            </div>
+          </div>
+        `;
+      }
+
+      msgDiv.innerHTML = `
+        <div class="flex items-center space-x-1.5 ${isSelf ? 'justify-end' : 'justify-start'}">
+          <span class="text-[9px] text-slate-500">${msg.time}</span>
+          <span class="font-bold ${isSelf ? 'text-aquamarine-400' : 'text-emerald-400'}">${escapeHtml(msg.sender)}</span>
+        </div>
+        <div class="${isSelf ? 'bg-aquamarine-900/60 border-aquamarine-500/30 ml-auto text-right' : 'bg-[#35373c] border-[#404249] mr-auto text-left'} border p-2 rounded-xl text-slate-100 max-w-[85%]">
+          ${msg.text ? `<div>${escapeHtml(msg.text)}</div>` : ''}
+          ${fileHtml}
+        </div>
+      `;
+
+      container.appendChild(msgDiv);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        pendingFileAttachment = file;
+        document.getElementById('file-preview-name').innerText = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+        document.getElementById('file-preview-box').classList.remove('hidden');
+      }
+    }
+
+    function cancelFileUpload() {
+      pendingFileAttachment = null;
+      document.getElementById('file-preview-box').classList.add('hidden');
+      document.getElementById('chat-file-input').value = '';
+    }
+
+    function handleChatKeyPress(e) {
+      if (e.key === 'Enter') sendChatMessage();
+    }
+
+    function toggleInCallChat() {
+      const drawer = document.getElementById('in-call-chat-drawer');
+      drawer.classList.toggle('hidden');
+      document.getElementById('unread-chat-badge').classList.add('hidden');
+    }
+
+    function toggleVolumePopover() {
+      document.getElementById('volume-popover').classList.toggle('hidden');
+    }
+
+    function adjustMasterVolume(val) {
+      masterVolume = val / 100;
+      document.getElementById('master-vol-label').innerText = `${val}%`;
+      const remoteVideo = document.getElementById('remote-video');
+      if (remoteVideo) remoteVideo.volume = masterVolume;
+    }
+
+    // "Maryamol" Folk Ringtone Audio Synthesizer
+    function playMaryamolChorus() {
+      if (isPlayingRingtone) {
+        stopMaryamolRingtone();
+        return;
+      }
+
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          masterGainNode = audioCtx.createGain();
+          masterGainNode.connect(audioCtx.destination);
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        isPlayingRingtone = true;
+        const playIcon = document.getElementById('ringtone-play-icon');
+        if (playIcon) playIcon.innerText = '⏹';
+
+        const melody = [
+          { note: 523.25, duration: 0.25 },
+          { note: 587.33, duration: 0.25 },
+          { note: 659.25, duration: 0.35 },
+          { note: 659.25, duration: 0.25 },
+          { note: 587.33, duration: 0.25 },
+          { note: 523.25, duration: 0.40 },
+          { note: 659.25, duration: 0.25 },
+          { note: 698.46, duration: 0.25 },
+          { note: 783.99, duration: 0.45 },
+          { note: 783.99, duration: 0.30 },
+          { note: 880.00, duration: 0.30 },
+          { note: 783.99, duration: 0.30 },
+          { note: 659.25, duration: 0.30 },
+          { note: 587.33, duration: 0.40 },
+          { note: 523.25, duration: 0.60 }
+        ];
+
+        function playLoop() {
+          if (!isPlayingRingtone) return;
+
+          let now = audioCtx.currentTime;
+          let totalTime = 0;
+
+          melody.forEach(item => {
+            const osc = audioCtx.createOscillator();
+            const noteGain = audioCtx.createGain();
+
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(item.note, now + totalTime);
+
+            noteGain.gain.setValueAtTime(0, now + totalTime);
+            noteGain.gain.linearRampToValueAtTime(0.25 * masterVolume, now + totalTime + 0.03);
+            noteGain.gain.exponentialRampToValueAtTime(0.001, now + totalTime + item.duration - 0.02);
+
+            osc.connect(noteGain);
+            noteGain.connect(masterGainNode);
+
+            osc.start(now + totalTime);
+            osc.stop(now + totalTime + item.duration);
+
+            totalTime += item.duration;
+          });
+
+          ringtoneTimeout = setTimeout(() => {
+            if (isPlayingRingtone) playLoop();
+          }, (totalTime + 0.4) * 1000);
+        }
+
+        playLoop();
+
+      } catch (e) {
+        console.error("Audio synth error", e);
+      }
+    }
+
+    function stopMaryamolRingtone() {
+      isPlayingRingtone = false;
+      if (ringtoneTimeout) clearTimeout(ringtoneTimeout);
+      const playIcon = document.getElementById('ringtone-play-icon');
+      if (playIcon) playIcon.innerText = '▶';
+    }
+
+    function renderFriendsList() {
+      const container = document.getElementById('friends-list');
+      container.innerHTML = '';
+
+      mockFriends.forEach((friend) => {
+        const card = document.createElement('div');
+        card.className = "flex items-center justify-between p-2.5 rounded-2xl bg-white/70 dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800/60 hover:border-aquamarine-500/50 transition-all duration-200";
+        card.innerHTML = `
+          <div class="flex items-center space-x-3">
+            <img src="${friend.avatar}" class="w-9 h-9 rounded-full object-cover ring-2 ring-aquamarine-500/30">
+            <div>
+              <div class="text-xs font-bold text-slate-900 dark:text-white">${friend.name}</div>
+              <div class="text-[10px] text-slate-500 dark:text-slate-400">@${friend.nick}</div>
+            </div>
+          </div>
+          <button onclick="fillTargetPeer('${friend.nick}')" class="px-2.5 py-1 bg-aquamarine-500/20 text-aquamarine-900 dark:text-aquamarine-300 hover:bg-aquamarine-500 hover:text-slate-950 font-bold text-[11px] rounded-xl active:scale-90 transition-all">
+            Выбрать
+          </button>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function fillTargetPeer(nick) {
+      document.getElementById('target-peer-id').value = nick;
+      showToast(`Выбран контакты @${nick}`);
+    }
+
+    function uploadAvatar(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const imgUrl = e.target.result;
+          document.getElementById('my-avatar-img').src = imgUrl;
+          document.getElementById('self-call-avatar').src = imgUrl;
+          showToast("Аватар обновлен из галереи 📸");
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    function toggleTheme() {
+      isDarkMode = !isDarkMode;
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function showToast(message) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = "px-4 py-2.5 rounded-2xl bg-slate-900/90 text-white dark:bg-white/90 dark:text-slate-900 font-semibold text-xs shadow-xl border border-white/20 dark:border-slate-800 transition-all duration-300 transform translate-y-[-10px] opacity-0 backdrop-blur-md flex items-center justify-between pointer-events-auto";
+      toast.innerHTML = `<span>${message}</span>`;
+
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-[-10px]', 'opacity-0');
+      }, 10);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-[-10px]');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    function showKomiInfo() {
+      showToast("«КОМИ созвон» — 11 reg destroy 🐻");
+    }
+  </script>
+</body>
+</html>
